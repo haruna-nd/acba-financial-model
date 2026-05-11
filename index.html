@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ACBA Financial Model — Alama Career Bridge Academy</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body { margin: 0; padding: 0; background: #0a0a0f; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState } = React;
+    const {
+      LineChart, Line, BarChart, Bar,
+      XAxis, YAxis, CartesianGrid, Tooltip,
+      Legend, ResponsiveContainer, ReferenceLine
+    } = Recharts;
+
+    const fmt = (n) => {
+      if (Math.abs(n) >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`;
+      if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+      if (Math.abs(n) >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
+      return n.toString();
+    };
+
+    const fmtTZS = (n) => `TZS ${fmt(n)}`;
+
+    function buildMonthly(assumptions) {
+      const {
+        pilotClients, pilotClientFee,
+        t1Clients, t2Clients, t3Clients,
+        candidatesFullCohort, candidateFee,
+        placedCandidatesPilot, placedCandidatesFull,
+        candidateSalary, benefitsPct,
+        transportCost, staffCost, facilityRent,
+        marketingCost,
+      } = assumptions;
+
+      const months = [];
+      let cumCashflow = -800_000_000;
+
+      for (let i = 1; i <= 12; i++) {
+        const isPilot = i <= 6;
+        const isFirstMonth = i === 1;
+
+        const clientRevenue = isPilot
+          ? pilotClients * pilotClientFee
+          : (t1Clients * 5_000_000) + (t2Clients * 10_000_000) + (t3Clients * 15_000_000);
+
+        const candidateRevenue = isPilot ? 0 : (candidatesFullCohort * candidateFee) / 12;
+        const totalRevenue = clientRevenue + candidateRevenue;
+
+        const placed = isPilot ? placedCandidatesPilot : placedCandidatesFull;
+        const salaryCost = placed * candidateSalary;
+        const benefitsCost = salaryCost * benefitsPct;
+        const totalCandidateCost = salaryCost + benefitsCost;
+
+        const capex = isFirstMonth ? 240_000_000 : 0;
+
+        const opCost =
+          totalCandidateCost +
+          transportCost +
+          staffCost +
+          facilityRent +
+          marketingCost +
+          capex;
+
+        const netMonthly = totalRevenue - opCost;
+        cumCashflow += netMonthly;
+
+        months.push({
+          month: `M${i}`,
+          clientRevenue,
+          candidateRevenue,
+          totalRevenue,
+          salaryCost,
+          benefitsCost,
+          opCost,
+          netMonthly,
+          cumCashflow,
+          placed,
+          isPilot,
+        });
+      }
+      return months;
+    }
+
+    const DEFAULT = {
+      pilotClients: 3,
+      pilotClientFee: 2_500_000,
+      t1Clients: 3,
+      t2Clients: 2,
+      t3Clients: 1,
+      candidatesFullCohort: 100,
+      candidateFee: 150_000,
+      placedCandidatesPilot: 30,
+      placedCandidatesFull: 60,
+      candidateSalary: 500_000,
+      benefitsPct: 0.15,
+      transportCost: 4_000_000,
+      staffCost: 6_000_000,
+      facilityRent: 2_500_000,
+      marketingCost: 1_500_000,
+    };
+
+    function buildAnnual(a) {
+      const monthly = buildMonthly(a);
+      const y1Revenue = monthly.reduce((s, m) => s + m.totalRevenue, 0);
+      const y1Costs = monthly.reduce((s, m) => s + m.opCost, 0);
+      const y1Net = y1Revenue - y1Costs;
+
+      const y2MonthlyRev = (4 * 5_000_000) + (6 * 10_000_000) + (4 * 15_000_000) + (500 * 150_000 / 12);
+      const y2MonthlyCost =
+        140 * a.candidateSalary * (1 + a.benefitsPct) +
+        a.transportCost * 2 +
+        a.staffCost * 1.5 +
+        a.facilityRent +
+        a.marketingCost * 2;
+      const y2Revenue = y2MonthlyRev * 12;
+      const y2Costs = y2MonthlyCost * 12;
+      const y2Net = y2Revenue - y2Costs - 160_000_000;
+
+      const y3MonthlyRev = (6 * 5_000_000) + (8 * 10_000_000) + (6 * 15_000_000) + (1000 * 150_000 / 12);
+      const y3MonthlyCost =
+        220 * a.candidateSalary * (1 + a.benefitsPct) +
+        a.transportCost * 3 +
+        a.staffCost * 2 +
+        a.facilityRent * 1.5 +
+        a.marketingCost * 2.5;
+      const y3Revenue = y3MonthlyRev * 12;
+      const y3Costs = y3MonthlyCost * 12;
+      const y3Net = y3Revenue - y3Costs - 160_000_000;
+
+      return { y1Revenue, y1Costs, y1Net, y2Revenue, y2Costs, y2Net, y3Revenue, y3Costs, y3Net };
+    }
+
+    const PROBLEMS = [
+      {
+        title: "Break-even at Month 7 is fiction",
+        detail: "The proposal buries TZS 240M of capex (vans, facility, platform, legal) as a lump hit in Month 1. That alone keeps you cash-negative through Month 10 realistically. The 'Month 7' figure only works if you ignore capex timing.",
+      },
+      {
+        title: "Candidate salary cost is wildly underestimated at scale",
+        detail: "60 placed × 500K = 30M/month in salaries alone. Add 15% NSSF/NHIF = 34.5M. Your total costs at Month 7+ per the proposal are 48.5M vs 52.5M revenue = TZS 4M surplus. That's a 7.6% margin. One van breakdown or one month of slow client onboarding and you're in the red.",
+      },
+      {
+        title: "Loan repayment starts Year 2, not Year 1 — but you don't have runway",
+        detail: "TZS 13.3M/month repayment from Year 2 eats your entire Year 1 surplus and then some. You need Year 2 client growth to hit before repayments kick in, or you're immediately in trouble.",
+      },
+      {
+        title: "Revenue is 100% dependent on client retention",
+        detail: "6 clients × average ~8.7M/month = all your revenue. If 2 clients churn in Month 8, you're back to burning cash. There's no diversification safety net in Year 1.",
+      },
+      {
+        title: "Candidate fee revenue is near-zero",
+        detail: "150K × 100 candidates = TZS 15M annually. That's ~TZS 1.25M/month. Against TZS 48M+ monthly costs, it's a rounding error. The business lives or dies on B2B client fees.",
+      },
+    ];
+
+    function ACBAFinancial() {
+      const [assumptions, setAssumptions] = useState(DEFAULT);
+      const [activeTab, setActiveTab] = useState("monthly");
+
+      const monthly = buildMonthly(assumptions);
+      const annual = buildAnnual(assumptions);
+
+      const operationalBreakeven = monthly.findIndex((m, i) => i >= 6 && m.netMonthly > 0);
+
+      const annualData = [
+        { year: "Year 1", revenue: annual.y1Revenue, costs: annual.y1Costs, net: annual.y1Net, repayment: 0 },
+        { year: "Year 2", revenue: annual.y2Revenue, costs: annual.y2Costs, net: annual.y2Net, repayment: 160_000_000 },
+        { year: "Year 3", revenue: annual.y3Revenue, costs: annual.y3Costs, net: annual.y3Net, repayment: 160_000_000 },
+      ];
+
+      const tabs = ["monthly", "annual", "problems", "assumptions"];
+
+      return (
+        <div style={{
+          fontFamily: "'IBM Plex Mono', 'Courier New', monospace",
+          background: "#0a0a0f",
+          minHeight: "100vh",
+          color: "#e8e8e0",
+          padding: "24px",
+          fontSize: "13px",
+        }}>
+          <style>{`
+            @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;600;700&display=swap');
+            * { box-sizing: border-box; }
+            ::-webkit-scrollbar { width: 6px; }
+            ::-webkit-scrollbar-track { background: #111; }
+            ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+            .tab-btn { cursor: pointer; padding: 8px 18px; border: 1px solid #333; background: transparent; color: #888; font-family: inherit; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; transition: all 0.15s; }
+            .tab-btn:hover { border-color: #e8c84d; color: #e8c84d; }
+            .tab-btn.active { border-color: #e8c84d; background: #e8c84d22; color: #e8c84d; }
+            .stat-box { background: #111118; border: 1px solid #222; padding: 16px 20px; }
+            .stat-box.warn { border-color: #c0392b44; background: #c0392b0a; }
+            .stat-box.ok { border-color: #27ae6044; background: #27ae600a; }
+            .input-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+            .input-row label { color: #888; width: 260px; font-size: 11px; }
+            .input-row input { background: #111; border: 1px solid #333; color: #e8e8e0; padding: 5px 10px; font-family: inherit; font-size: 12px; width: 140px; }
+            .input-row input:focus { outline: none; border-color: #e8c84d; }
+            .problem-card { border: 1px solid #c0392b44; background: #c0392b08; padding: 16px 20px; margin-bottom: 12px; }
+            .problem-title { color: #e74c3c; font-weight: 600; margin-bottom: 6px; font-size: 12px; letter-spacing: 0.05em; }
+            .problem-detail { color: #aaa; line-height: 1.6; font-size: 12px; }
+          `}</style>
+
+          <div style={{ borderBottom: "1px solid #222", paddingBottom: "20px", marginBottom: "24px" }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: "16px", marginBottom: "6px" }}>
+              <span style={{ color: "#e8c84d", fontWeight: 700, fontSize: "11px", letterSpacing: "0.15em", textTransform: "uppercase" }}>ACBA</span>
+              <span style={{ color: "#555", fontSize: "11px" }}>|</span>
+              <span style={{ color: "#888", fontSize: "11px", letterSpacing: "0.08em", textTransform: "uppercase" }}>Financial Model & Profitability Analysis</span>
+            </div>
+            <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: "22px", fontWeight: 700, color: "#fff", letterSpacing: "-0.02em" }}>
+              Alama Career Bridge Academy
+            </div>
+            <div style={{ color: "#555", fontSize: "11px", marginTop: "4px" }}>All figures in Tanzanian Shillings (TZS) · 0% interest loan · 5-year repayment</div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "10px", marginBottom: "24px" }}>
+            {[
+              { label: "Loan Capital", value: "800M", sub: "TZS @ 0% interest", cls: "" },
+              { label: "Annual Repayment", value: "160M", sub: "from Year 2", cls: "warn" },
+              { label: "Operational B/E", value: operationalBreakeven >= 0 ? `Month ${operationalBreakeven + 1}` : "Post Y1", sub: "monthly cash positive", cls: operationalBreakeven >= 0 && operationalBreakeven < 8 ? "ok" : "warn" },
+              { label: "Y1 Net (after capex)", value: fmtTZS(annual.y1Net), sub: "incl. 240M capex hit", cls: annual.y1Net < 0 ? "warn" : "ok" },
+              { label: "Y2 Net (post-repay)", value: fmtTZS(annual.y2Net), sub: "after 160M repayment", cls: annual.y2Net > 0 ? "ok" : "warn" },
+            ].map((k, i) => (
+              <div key={i} className={`stat-box ${k.cls}`}>
+                <div style={{ color: "#666", fontSize: "10px", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "6px" }}>{k.label}</div>
+                <div style={{ fontSize: "20px", fontWeight: 700, color: k.cls === "warn" ? "#e74c3c" : k.cls === "ok" ? "#2ecc71" : "#e8c84d", marginBottom: "3px" }}>{k.value}</div>
+                <div style={{ color: "#555", fontSize: "10px" }}>{k.sub}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: "flex", gap: "0", marginBottom: "24px" }}>
+            {tabs.map((t) => (
+              <button key={t} className={`tab-btn ${activeTab === t ? "active" : ""}`} onClick={() => setActiveTab(t)}>
+                {t === "problems" ? "⚠ Red Flags" : t.charAt(0).toUpperCase() + t.slice(1)}
+              </button>
+            ))}
+          </div>
+
+          {activeTab === "monthly" && (
+            <div>
+              <div style={{ marginBottom: "28px" }}>
+                <div style={{ color: "#e8c84d", fontSize: "11px", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "12px" }}>Monthly Revenue vs Costs — Year 1</div>
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={monthly.map(m => ({ month: m.month, "Client Fees": m.clientRevenue / 1_000_000, "Candidate Fees": m.candidateRevenue / 1_000_000, "Total Costs": m.opCost / 1_000_000 }))}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1a1a2a" />
+                    <XAxis dataKey="month" tick={{ fill: "#666", fontSize: 11 }} />
+                    <YAxis tickFormatter={(v) => `${v}M`} tick={{ fill: "#666", fontSize: 11 }} />
+                    <Tooltip formatter={(v) => `TZS ${v.toFixed(1)}M`} contentStyle={{ background: "#111", border: "1px solid #333", fontFamily: "IBM Plex Mono" }} />
+                    <Legend wrapperStyle={{ fontSize: "11px" }} />
+                    <Bar dataKey="Client Fees" stackId="rev" fill="#e8c84d" />
+                    <Bar dataKey="Candidate Fees" stackId="rev" fill="#f0a500" />
+                    <Bar dataKey="Total Costs" fill="#c0392b" opacity={0.7} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div style={{ marginBottom: "28px" }}>
+                <div style={{ color: "#e8c84d", fontSize: "11px", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "12px" }}>Cumulative Cash Position (post 800M loan)</div>
+                <ResponsiveContainer width="100%" height={220}>
+                  <LineChart data={monthly.map(m => ({ month: m.month, "Cumulative Cash": m.cumCashflow / 1_000_000, "Net Monthly": m.netMonthly / 1_000_000 }))}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1a1a2a" />
+                    <XAxis dataKey="month" tick={{ fill: "#666", fontSize: 11 }} />
+                    <YAxis tickFormatter={(v) => `${v}M`} tick={{ fill: "#666", fontSize: 11 }} />
+                    <Tooltip formatter={(v) => `TZS ${v.toFixed(1)}M`} contentStyle={{ background: "#111", border: "1px solid #333", fontFamily: "IBM Plex Mono" }} />
+                    <Legend wrapperStyle={{ fontSize: "11px" }} />
+                    <ReferenceLine y={0} stroke="#555" strokeDasharray="4 4" />
+                    <Line type="monotone" dataKey="Cumulative Cash" stroke="#2ecc71" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="Net Monthly" stroke="#3498db" strokeWidth={1.5} dot={false} strokeDasharray="5 3" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div style={{ color: "#e8c84d", fontSize: "11px", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "12px" }}>Month-by-Month Breakdown</div>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid #333" }}>
+                      {["Month", "Phase", "Clients", "Placed", "Client Rev", "Cand Rev", "Salary+Ben", "Op Costs", "Net Monthly", "Cum. Cash"].map(h => (
+                        <th key={h} style={{ padding: "8px 10px", textAlign: "right", color: "#666", fontWeight: 500, letterSpacing: "0.05em" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {monthly.map((m, i) => {
+                      const clientCount = m.isPilot ? assumptions.pilotClients : assumptions.t1Clients + assumptions.t2Clients + assumptions.t3Clients;
+                      return (
+                        <tr key={i} style={{ borderBottom: "1px solid #1a1a2a", background: i % 2 === 0 ? "#0d0d14" : "transparent" }}>
+                          <td style={{ padding: "7px 10px", textAlign: "right", color: "#e8c84d" }}>{m.month}</td>
+                          <td style={{ padding: "7px 10px", textAlign: "right", color: m.isPilot ? "#3498db" : "#2ecc71", fontSize: "10px" }}>{m.isPilot ? "PILOT" : "FULL"}</td>
+                          <td style={{ padding: "7px 10px", textAlign: "right" }}>{clientCount}</td>
+                          <td style={{ padding: "7px 10px", textAlign: "right" }}>{m.placed}</td>
+                          <td style={{ padding: "7px 10px", textAlign: "right" }}>{fmt(m.clientRevenue)}</td>
+                          <td style={{ padding: "7px 10px", textAlign: "right" }}>{fmt(m.candidateRevenue)}</td>
+                          <td style={{ padding: "7px 10px", textAlign: "right", color: "#e74c3c" }}>{fmt(m.salaryCost + m.benefitsCost)}</td>
+                          <td style={{ padding: "7px 10px", textAlign: "right", color: "#e74c3c" }}>{fmt(m.opCost)}</td>
+                          <td style={{ padding: "7px 10px", textAlign: "right", color: m.netMonthly >= 0 ? "#2ecc71" : "#e74c3c", fontWeight: 600 }}>{fmt(m.netMonthly)}</td>
+                          <td style={{ padding: "7px 10px", textAlign: "right", color: m.cumCashflow >= 0 ? "#2ecc71" : "#e74c3c", fontWeight: 600 }}>{fmt(m.cumCashflow)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ marginTop: "10px", color: "#555", fontSize: "10px" }}>* M1 includes TZS 240M capex (vans 120M + facility 40M + platform 60M + legal/reg 20M). Marketing 80M spread across Y1.</div>
+            </div>
+          )}
+
+          {activeTab === "annual" && (
+            <div>
+              <div style={{ marginBottom: "28px" }}>
+                <div style={{ color: "#e8c84d", fontSize: "11px", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "12px" }}>3-Year Revenue, Costs & Net</div>
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={annualData.map(d => ({ ...d, revenue: d.revenue / 1_000_000, costs: d.costs / 1_000_000, net: d.net / 1_000_000, repayment: d.repayment / 1_000_000 }))}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1a1a2a" />
+                    <XAxis dataKey="year" tick={{ fill: "#666", fontSize: 11 }} />
+                    <YAxis tickFormatter={(v) => `${v}M`} tick={{ fill: "#666", fontSize: 11 }} />
+                    <Tooltip formatter={(v) => `TZS ${v.toFixed(0)}M`} contentStyle={{ background: "#111", border: "1px solid #333", fontFamily: "IBM Plex Mono" }} />
+                    <Legend wrapperStyle={{ fontSize: "11px" }} />
+                    <Bar dataKey="revenue" name="Revenue" fill="#e8c84d" />
+                    <Bar dataKey="costs" name="Operating Costs" fill="#c0392b" opacity={0.8} />
+                    <Bar dataKey="repayment" name="Loan Repayment" fill="#8e44ad" opacity={0.8} />
+                    <Bar dataKey="net" name="Net Surplus" fill="#2ecc71" opacity={0.9} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px", marginBottom: "24px" }}>
+                {annualData.map((y, i) => (
+                  <div key={i} className={`stat-box ${y.net < 0 ? "warn" : "ok"}`}>
+                    <div style={{ color: "#888", fontSize: "10px", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "12px" }}>{y.year}</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 16px", fontSize: "11px" }}>
+                      {[
+                        ["Revenue", fmtTZS(y.revenue), "#e8c84d"],
+                        ["Op Costs", fmtTZS(y.costs), "#e74c3c"],
+                        ["Loan Repay", fmtTZS(y.repayment), "#9b59b6"],
+                        ["Net Surplus", fmtTZS(y.net), y.net >= 0 ? "#2ecc71" : "#e74c3c"],
+                      ].map(([label, val, color]) => (
+                        <div key={label}>
+                          <div style={{ color: "#555", fontSize: "10px", marginBottom: "2px" }}>{label}</div>
+                          <div style={{ color, fontWeight: 600 }}>{val}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {i === 0 && <div style={{ marginTop: "10px", color: "#555", fontSize: "10px", borderTop: "1px solid #222", paddingTop: "8px" }}>Capex year — expect negative operational cash. Loan buffers this.</div>}
+                    {i === 1 && <div style={{ marginTop: "10px", color: "#555", fontSize: "10px", borderTop: "1px solid #222", paddingTop: "8px" }}>Repayments kick in. Need ~14 clients to stay comfortably positive.</div>}
+                    {i === 2 && <div style={{ marginTop: "10px", color: "#555", fontSize: "10px", borderTop: "1px solid #222", paddingTop: "8px" }}>Scale phase. 20 clients + ancillary revenue begins to matter.</div>}
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ color: "#e8c84d", fontSize: "11px", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "12px" }}>Unit Economics Per Client (Full Rate)</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px" }}>
+                {[
+                  { tier: "Tier 1 — 5M/mo", staff: 5, fee: 5_000_000, color: "#3498db" },
+                  { tier: "Tier 2 — 10M/mo", staff: 12, fee: 10_000_000, color: "#e8c84d" },
+                  { tier: "Tier 3 — 15M/mo", staff: 20, fee: 15_000_000, color: "#2ecc71" },
+                ].map((t) => {
+                  const salaryCostPerStaff = assumptions.candidateSalary * (1 + assumptions.benefitsPct);
+                  const transportShare = assumptions.transportCost / Math.max(1, assumptions.t1Clients + assumptions.t2Clients + assumptions.t3Clients || 6);
+                  const adminShare = (assumptions.staffCost + assumptions.facilityRent) / 6;
+                  const totalCostForClient = (t.staff * salaryCostPerStaff) + transportShare + adminShare;
+                  const margin = t.fee - totalCostForClient;
+                  const marginPct = (margin / t.fee * 100).toFixed(1);
+                  return (
+                    <div key={t.tier} className="stat-box">
+                      <div style={{ color: t.color, fontSize: "11px", fontWeight: 600, marginBottom: "12px" }}>{t.tier}</div>
+                      <div style={{ fontSize: "11px", display: "grid", gap: "6px" }}>
+                        {[
+                          ["Staff allocated", `${t.staff} candidates`],
+                          ["Monthly fee", fmtTZS(t.fee)],
+                          ["Salary + benefits", fmtTZS(t.staff * salaryCostPerStaff)],
+                          ["Transport share", fmtTZS(transportShare)],
+                          ["Admin overhead share", fmtTZS(adminShare)],
+                          ["Gross margin/client", fmtTZS(margin)],
+                          ["Margin %", `${marginPct}%`],
+                        ].map(([l, v]) => (
+                          <div key={l} style={{ display: "flex", justifyContent: "space-between" }}>
+                            <span style={{ color: "#666" }}>{l}</span>
+                            <span style={{ color: l.includes("margin") || l.includes("Margin") ? (margin > 0 ? "#2ecc71" : "#e74c3c") : "#ccc" }}>{v}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {activeTab === "problems" && (
+            <div>
+              <div style={{ background: "#c0392b0a", border: "1px solid #c0392b33", padding: "14px 18px", marginBottom: "20px", fontSize: "12px", color: "#e74c3c", lineHeight: 1.6 }}>
+                ⚠ These are not deal-killers. They're the gaps between the proposal numbers and operational reality. Fix these before pitching to any serious investor or lender.
+              </div>
+              {PROBLEMS.map((p, i) => (
+                <div key={i} className="problem-card">
+                  <div className="problem-title">#{i + 1} — {p.title}</div>
+                  <div className="problem-detail">{p.detail}</div>
+                </div>
+              ))}
+              <div style={{ marginTop: "20px", border: "1px solid #27ae6044", background: "#27ae600a", padding: "16px 20px" }}>
+                <div style={{ color: "#2ecc71", fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "10px" }}>What Actually Makes This Work</div>
+                {[
+                  "The B2B client fee model is the entire business. Every sales conversation, every hire, every decision should be through the lens of 'does this help me close and retain more clients.'",
+                  "The real margin is in Tier 3 clients. One Tier 3 at 15M/month covers the salary cost of 20 candidates. Get 3 Tier 3 clients and you're operationally stable before anything else scales.",
+                  "The transport service is a genuine competitive moat. No competitor offers this. It's also a liability (fleet breakdown risk) but the punctuality guarantee is your best sales tool with hotels.",
+                  "The 0% loan is structurally critical — at any interest rate, the model struggles in Y1. Protect this covenant above everything else.",
+                  "Ancillary revenue (corporate training OTP at 500K/employee, 10-person minimum = 5M/contract) is underweighted in the proposal. Two corporate training contracts per month adds 10M — that materially changes Y1 math.",
+                ].map((point, i) => (
+                  <div key={i} style={{ display: "flex", gap: "10px", marginBottom: "8px", color: "#aaa", fontSize: "12px", lineHeight: 1.6 }}>
+                    <span style={{ color: "#2ecc71", flexShrink: 0 }}>→</span>
+                    <span>{point}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeTab === "assumptions" && (
+            <div>
+              <div style={{ color: "#888", fontSize: "11px", marginBottom: "16px", lineHeight: 1.6 }}>
+                Adjust assumptions to model different scenarios. All charts update in real-time.
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px" }}>
+                <div>
+                  <div style={{ color: "#e8c84d", fontSize: "11px", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "12px" }}>Pilot Phase (M1–M6)</div>
+                  {[
+                    ["pilotClients", "Pilot clients", 1],
+                    ["pilotClientFee", "Client fee/month (TZS)", 500_000],
+                    ["placedCandidatesPilot", "Placed candidates (pilot)", 1],
+                  ].map(([key, label, step]) => (
+                    <div key={key} className="input-row">
+                      <label>{label}</label>
+                      <input type="number" step={step} value={assumptions[key]}
+                        onChange={(e) => setAssumptions((prev) => ({ ...prev, [key]: Number(e.target.value) }))} />
+                      <span style={{ color: "#555", fontSize: "11px" }}>{key === "pilotClientFee" ? fmtTZS(assumptions[key]) : ""}</span>
+                    </div>
+                  ))}
+                  <div style={{ color: "#e8c84d", fontSize: "11px", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "12px", marginTop: "20px" }}>Full Ops Phase (M7–M12)</div>
+                  {[
+                    ["t1Clients", "Tier 1 clients (5M/mo)", 1],
+                    ["t2Clients", "Tier 2 clients (10M/mo)", 1],
+                    ["t3Clients", "Tier 3 clients (15M/mo)", 1],
+                    ["placedCandidatesFull", "Placed candidates (full)", 1],
+                  ].map(([key, label, step]) => (
+                    <div key={key} className="input-row">
+                      <label>{label}</label>
+                      <input type="number" step={step} value={assumptions[key]}
+                        onChange={(e) => setAssumptions((prev) => ({ ...prev, [key]: Number(e.target.value) }))} />
+                    </div>
+                  ))}
+                </div>
+                <div>
+                  <div style={{ color: "#e8c84d", fontSize: "11px", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "12px" }}>Candidate Economics</div>
+                  {[
+                    ["candidatesFullCohort", "Cohort 2 candidates enrolled", 10],
+                    ["candidateFee", "Enrolment fee per candidate (TZS)", 10_000],
+                    ["candidateSalary", "Monthly salary per placed candidate (TZS)", 50_000],
+                    ["benefitsPct", "NSSF/NHIF as % of salary", 0.01],
+                  ].map(([key, label, step]) => (
+                    <div key={key} className="input-row">
+                      <label>{label}</label>
+                      <input type="number" step={step} value={assumptions[key]}
+                        onChange={(e) => setAssumptions((prev) => ({ ...prev, [key]: Number(e.target.value) }))} />
+                      <span style={{ color: "#555", fontSize: "11px" }}>
+                        {key === "candidateSalary" || key === "candidateFee" ? fmtTZS(assumptions[key]) : ""}
+                        {key === "benefitsPct" ? `${(assumptions[key] * 100).toFixed(0)}%` : ""}
+                      </span>
+                    </div>
+                  ))}
+                  <div style={{ color: "#e8c84d", fontSize: "11px", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "12px", marginTop: "20px" }}>Fixed Monthly Costs</div>
+                  {[
+                    ["transportCost", "Transport fleet ops (TZS/mo)", 500_000],
+                    ["staffCost", "ACBA staff salaries (TZS/mo)", 500_000],
+                    ["facilityRent", "Facility rent (TZS/mo)", 250_000],
+                    ["marketingCost", "Marketing & biz dev (TZS/mo)", 250_000],
+                  ].map(([key, label, step]) => (
+                    <div key={key} className="input-row">
+                      <label>{label}</label>
+                      <input type="number" step={step} value={assumptions[key]}
+                        onChange={(e) => setAssumptions((prev) => ({ ...prev, [key]: Number(e.target.value) }))} />
+                      <span style={{ color: "#555", fontSize: "11px" }}>{fmtTZS(assumptions[key])}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={{ marginTop: "20px", border: "1px solid #333", padding: "14px 18px", background: "#0d0d14", fontSize: "11px", color: "#666", lineHeight: 1.7 }}>
+                <span style={{ color: "#e8c84d" }}>Capex assumptions (fixed):</span> Vans TZS 120M · Facility fit-out TZS 40M · Platform dev TZS 60M · Legal/regulatory TZS 20M · Total: <span style={{ color: "#fff" }}>TZS 240M</span> hit in Month 1.
+              </div>
+            </div>
+          )}
+
+          <div style={{ marginTop: "32px", borderTop: "1px solid #1a1a1a", paddingTop: "14px", color: "#333", fontSize: "10px", letterSpacing: "0.05em" }}>
+            ACBA Financial Model · Built for internal planning · Not for external distribution without verification of assumptions
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<ACBAFinancial />);
+  </script>
+</body>
+</html>
